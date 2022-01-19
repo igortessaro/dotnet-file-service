@@ -1,0 +1,9 @@
+## build image on docker
+## run this command on dockerfile folder
+docker build -t dotnet-file-service .
+
+## publish image in heroku
+heroku container:push web -a dotnet-file-service
+
+## enable application on heroku
+heroku container:release web -a dotnet-file-service
