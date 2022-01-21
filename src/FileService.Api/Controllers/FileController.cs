@@ -1,4 +1,8 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using FileService.Api.Dtos;
+using FileService.Api.Mongo;
+using FileService.Api.Repositories;
+using Microsoft.AspNetCore.Mvc;
+using MongoDB.Driver;
 
 namespace FileService.Api.Controllers
 {
@@ -6,38 +10,48 @@ namespace FileService.Api.Controllers
     [ApiController]
     public class FileController : ControllerBase
     {
-        private const string _filePath = "files";
+        private readonly IFileRepository _fileRepository;
+
+        public FileController(MongoContext dbContext)
+        {
+            this._fileRepository = new FileRepository(dbContext.Database);
+        }
 
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            var files = Directory.GetFiles(_filePath);
+            var files = this._fileRepository.GetAll().Select(x => new { x.Id, x.Name }).ToList();
             return await Task.Run(() => Ok(files));
         }
 
         [HttpGet("{fileName}")]
-        public IActionResult GetByName(string fileName)
+        public async Task<IActionResult> GetByName(string fileName)
         {
-            try
-            {
-                Stream stream = new FileStream(Path.Combine(_filePath, fileName), FileMode.Open, FileAccess.Read);
+            var file = await this._fileRepository.GetSingleAsync(x => x.Name == fileName);
 
-                return File(stream, "application/octet-stream", fileName);
-            }
-            catch (FileNotFoundException)
+            if (file == null)
             {
                 return NotFound();
             }
+
+            return File(Convert.FromBase64String(file.ContenteBase64), "application/octet-stream", file.Name);
         }
 
         [HttpPost]
         public async Task<IActionResult> Create(IFormFile file)
         {
-            string path = Path.Combine(_filePath, file.FileName);
-            using FileStream filestream = System.IO.File.Create(path);
-            await file.CopyToAsync(filestream);
-            filestream.Flush();
-            return Ok($"File {path} created successfully");
+            using var memoryStream = new MemoryStream();
+            file.CopyTo(memoryStream);
+            var fileBytes = memoryStream.ToArray();
+            string contenteBase64 = Convert.ToBase64String(fileBytes);
+
+            var fileToCreate = new CreateOrUpdateFileDto();
+            fileToCreate.Name = file.FileName;
+            fileToCreate.ContenteBase64 = contenteBase64;
+
+            await this._fileRepository.CreateFileAsync(fileToCreate);
+
+            return Ok($"File {file.FileName} created successfully");
         }
     }
 }
